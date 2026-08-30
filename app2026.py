@@ -1,10 +1,10 @@
-import sqlite3
 import datetime
 import io
 import random
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+from streamlit_gsheets import GSheetsConnection
 
 # Módulos de ReportLab para la exportación PDF
 from reportlab.lib.pagesizes import letter
@@ -40,266 +40,116 @@ bg_fruits_html = "".join(fruits_html_list)
 
 CUSTOM_CSS = f"""
 <style>
-    /* Estilos globales: tonos verdes suaves y limpios */
     .stApp {{
         background-color: #f4f8f5;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: #2b3a30;
     }}
-    
-    /* Fondo de frutas dispersas y con transparencia */
     .bg-fruits-overlay {{
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        pointer-events: none;
-        z-index: 0;
-        opacity: 0.10;
-        overflow: hidden;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        pointer-events: none; z-index: 0; opacity: 0.10; overflow: hidden;
     }}
-
-    /* Contenido por encima del fondo */
     [data-testid="stAppViewContainer"] > .main {{
-        position: relative;
-        z-index: 1;
+        position: relative; z-index: 1;
     }}
-    
-    /* Tarjetas de métricas prolijas */
     .metric-card {{
-        background: #ffffff;
-        border: 1px solid #d8e6dc;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-        border-left: 4px solid #52796f;
-        margin-bottom: 10px;
+        background: #ffffff; border: 1px solid #d8e6dc; border-radius: 12px;
+        padding: 16px 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+        border-left: 4px solid #52796f; margin-bottom: 10px;
     }}
     .metric-card-title {{
-        color: #6b8a7a;
-        font-size: 0.8rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        color: #6b8a7a; font-size: 0.8rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.5px;
     }}
     .metric-card-value {{
-        color: #1b4332;
-        font-size: 1.8rem;
-        font-weight: 800;
-        margin-top: 4px;
+        color: #1b4332; font-size: 1.8rem; font-weight: 800; margin-top: 4px;
     }}
-    
-    /* Badges de estado */
     .badge-disponible {{
-        background-color: #e8f5e9;
-        color: #2e7d32;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: 600;
-        font-size: 0.8rem;
-        border: 1px solid #c8e6c9;
+        background-color: #e8f5e9; color: #2e7d32; padding: 4px 10px;
+        border-radius: 12px; font-weight: 600; font-size: 0.8rem; border: 1px solid #c8e6c9;
     }}
     .badge-poco {{
-        background-color: #fff8e1;
-        color: #f57f17;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: 600;
-        font-size: 0.8rem;
-        border: 1px solid #ffe082;
+        background-color: #fff8e1; color: #f57f17; padding: 4px 10px;
+        border-radius: 12px; font-weight: 600; font-size: 0.8rem; border: 1px solid #ffe082;
     }}
     .badge-agotado {{
-        background-color: #ffebee;
-        color: #c62828;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: 600;
-        font-size: 0.8rem;
-        border: 1px solid #ffcdd2;
+        background-color: #ffebee; color: #c62828; padding: 4px 10px;
+        border-radius: 12px; font-weight: 600; font-size: 0.8rem; border: 1px solid #ffcdd2;
     }}
-
-    /* Barra lateral en tonos verdes */
     [data-testid="stSidebar"] {{
-        background-color: #e8f5e9 !important;
-        border-right: 2px solid #a5d6a7;
-        padding: 20px 10px;
+        background-color: #e8f5e9 !important; border-right: 2px solid #a5d6a7; padding: 20px 10px;
     }}
-    
-    /* Ocultar el label de la barra lateral */
-    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] {{
-        display: none;
-    }}
-
-    /* Menú lateral */
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] {{ display: none; }}
     div[role="radiogroup"] > label {{
-        background-color: #ffffff;
-        border: 1px solid #a5d6a7;
-        padding: 10px 14px !important;
-        margin-bottom: 8px !important;
-        border-radius: 10px !important;
-        font-weight: 600;
-        color: #1b4332;
+        background-color: #ffffff; border: 1px solid #a5d6a7; padding: 10px 14px !important;
+        margin-bottom: 8px !important; border-radius: 10px !important; font-weight: 600; color: #1b4332;
     }}
     div[role="radiogroup"] > label:hover {{
-        border-color: #2e7d32;
-        background-color: #c8e6c9;
+        border-color: #2e7d32; background-color: #c8e6c9;
     }}
-    
-    /* Botones principales estilizados */
     .stButton > button {{
-        border-radius: 8px;
-        border: 1px solid #a3c9ad;
-        background-color: #ffffff;
-        color: #2e7d32;
-        font-weight: 600;
-        padding: 6px 14px;
+        border-radius: 8px; border: 1px solid #a3c9ad; background-color: #ffffff;
+        color: #2e7d32; font-weight: 600; padding: 6px 14px;
     }}
     .stButton > button:hover {{
-        background-color: #52796f;
-        color: #ffffff;
-        border-color: #52796f;
+        background-color: #52796f; color: #ffffff; border-color: #52796f;
     }}
-
-    /* Ocultar elementos predeterminados */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
-
-    /* Animación de 5 segundos */
     .fruits-falling-container {{
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        pointer-events: none;
-        z-index: 9999;
-        overflow: hidden;
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        pointer-events: none; z-index: 9999; overflow: hidden;
         animation: fadeOut 0.5s ease 4.8s forwards;
     }}
-
     .fruit-item {{
-        position: absolute;
-        top: -80px;
-        font-size: 2.2rem;
+        position: absolute; top: -80px; font-size: 2.2rem;
         animation: fall 4.5s linear 1 forwards;
     }}
-
     @keyframes fall {{
         0% {{ transform: translateY(0) rotate(0deg); opacity: 1; }}
         90% {{ opacity: 1; }}
         100% {{ transform: translateY(105vh) rotate(360deg); opacity: 0; }}
     }}
-
-    @keyframes fadeOut {{
-        to {{ opacity: 0; visibility: hidden; }}
-    }}
+    @keyframes fadeOut {{ to {{ opacity: 0; visibility: hidden; }} }}
 </style>
-
-<div class="bg-fruits-overlay">
-    {bg_fruits_html}
-</div>
+<div class="bg-fruits-overlay">{bg_fruits_html}</div>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-DB_FILE = "inventario_hogar.db"
-
 # ==========================================
-# 2. CAPA DE BASE DE DATOS (SQLITE)
+# 2. CAPA DE BASE DE DATOS (GOOGLE SHEETS)
 # ==========================================
-def get_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        # Elimina la tabla previa si existe para resetear la base de datos limpia
-        cursor.execute("DROP TABLE IF EXISTS productos")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS productos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                cantidad REAL NOT NULL DEFAULT 0,
-                unidad TEXT NOT NULL,
-                minimo REAL NOT NULL DEFAULT 1,
-                ultima_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS historial (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                descripcion TEXT NOT NULL
-            )
-        """)
-        conn.commit()
-
-def registrar_log(descripcion):
-    with get_connection() as conn:
-        conn.cursor().execute("INSERT INTO historial (descripcion) VALUES (?)", (descripcion,))
-        conn.commit()
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def obtener_productos():
-    query = """
-        SELECT id, nombre, cantidad, unidad, minimo, ultima_modificacion,
-               CASE 
-                   WHEN cantidad == 0 THEN 'Agotado'
-                   WHEN cantidad <= minimo THEN 'Poco Stock'
-                   ELSE 'Disponible'
-               END as estado
-        FROM productos
-        ORDER BY nombre ASC
-    """
-    with get_connection() as conn:
-        df = pd.read_sql_query(query, conn)
-    return df
+    try:
+        df = conn.read(ttl=0)
+        if df.empty or 'nombre' not in df.columns:
+            return pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo', 'estado'])
+        
+        df['cantidad'] = pd.to_numeric(df['cantidad'], errors='coerce').fillna(0)
+        df['minimo'] = pd.to_numeric(df['minimo'], errors='coerce').fillna(1)
+        
+        def calc_estado(row):
+            if row['cantidad'] == 0:
+                return 'Agotado'
+            elif row['cantidad'] <= row['minimo']:
+                return 'Poco Stock'
+            else:
+                return 'Disponible'
+                
+        df['estado'] = df.apply(calc_estado, axis=1)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo', 'estado'])
 
-def agregar_producto(nombre, cantidad, unidad, minimo):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO productos (nombre, cantidad, unidad, minimo)
-            VALUES (?, ?, ?, ?)
-        """, (nombre, cantidad, unidad, minimo))
-        conn.commit()
-    registrar_log(f"Se creó el producto '{nombre}' con {cantidad} {unidad}.")
-
-def editar_producto_db(prod_id, nombre, cantidad, unidad, minimo):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE productos
-            SET nombre = ?, cantidad = ?, unidad = ?, minimo = ?, ultima_modificacion = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (nombre, cantidad, unidad, minimo, prod_id))
-        conn.commit()
-    registrar_log(f"Producto actualizado: '{nombre}'.")
-
-def actualizar_stock(prod_id, nuevo_stock, nombre_producto):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE productos 
-            SET cantidad = ?, ultima_modificacion = CURRENT_TIMESTAMP 
-            WHERE id = ?
-        """, (nuevo_stock, prod_id))
-        conn.commit()
-    
-    estado = "Agotado" if nuevo_stock == 0 else ("Poco Stock" if nuevo_stock <= 1 else "Disponible")
-    registrar_log(f"Stock actualizado de '{nombre_producto}' a {nuevo_stock} (Estado: {estado}).")
-
-def eliminar_producto(prod_id, nombre_producto):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM productos WHERE id = ?", (prod_id,))
-        conn.commit()
-    registrar_log(f"Producto eliminado: '{nombre_producto}'.")
+def guardar_df(df):
+    df_to_save = df[['nombre', 'cantidad', 'unidad', 'minimo']].copy()
+    conn.update(data=df_to_save)
 
 # ==========================================
-# 3. GENERADOR DE REPORTES PDF (REPORTLAB)
+# 3. GENERADOR DE REPORTES PDF
 # ==========================================
 def generar_pdf_lista_compras(df_faltantes):
     buffer = io.BytesIO()
@@ -308,11 +158,8 @@ def generar_pdf_lista_compras(df_faltantes):
     
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.HexColor('#2e7d32'),
-        spaceAfter=10
+        'TitleStyle', parent=styles['Heading1'], fontSize=18,
+        textColor=colors.HexColor('#2e7d32'), spaceAfter=10
     )
     
     story.append(Paragraph("Lista de Compras del Hogar", title_style))
@@ -356,10 +203,8 @@ def animacion_frutas_5s():
     st.markdown(html_code, unsafe_allow_html=True)
 
 # ==========================================
-# 4. APLICACIÓN Y NAVEGACIÓN PRINCIPAL
+# 4. NAVEGACIÓN Y MENÚ
 # ==========================================
-init_db()
-
 st.sidebar.markdown("### Inventario Hogar")
 opcion_menu = st.sidebar.radio(
     "",
@@ -373,11 +218,10 @@ opcion_menu = st.sidebar.radio(
 )
 
 # ------------------------------------------
-# MÓDULO 1: PANEL CENTRAL
+# PANEL CENTRAL
 # ------------------------------------------
 if opcion_menu == "Panel Central":
     animacion_frutas_5s()
-    
     st.header("Panel Central")
     df = obtener_productos()
     
@@ -396,23 +240,19 @@ if opcion_menu == "Panel Central":
     
     if not df.empty:
         col_chart1, col_chart2 = st.columns(2)
-        
         with col_chart1:
             with st.container(border=True):
                 st.markdown("**Estado del Inventario**")
                 estado_counts = df['estado'].value_counts().reset_index()
                 estado_counts.columns = ['Estado', 'Cantidad']
-                
                 color_map = {'Disponible': '#2e7d32', 'Poco Stock': '#f57f17', 'Agotado': '#c62828'}
-                fig1 = px.pie(estado_counts, values='Cantidad', names='Estado', hole=0.5,
-                              color='Estado', color_discrete_map=color_map)
+                fig1 = px.pie(estado_counts, values='Cantidad', names='Estado', hole=0.5, color='Estado', color_discrete_map=color_map)
                 fig1.update_traces(textposition='inside', textinfo='percent+label')
                 fig1.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=220, showlegend=False)
                 st.plotly_chart(fig1, use_container_width=True)
 
         with col_chart2:
             with st.container(border=True):
-                # Nuevo widget: lista directa de productos sin stock
                 st.markdown("**Productos Agotados**")
                 df_agotados = df[df['estado'] == 'Agotado']
                 if not df_agotados.empty:
@@ -424,7 +264,7 @@ if opcion_menu == "Panel Central":
         st.info("La base de datos está vacía. Añade productos desde el menú lateral.")
 
 # ------------------------------------------
-# MÓDULO 2: INVENTARIO PRINCIPAL
+# INVENTARIO PRINCIPAL
 # ------------------------------------------
 elif opcion_menu == "Inventario Principal":
     st.header("Gestión de Inventario")
@@ -437,9 +277,9 @@ elif opcion_menu == "Inventario Principal":
         with col_est:
             est_filtro = st.selectbox("Estado:", ["Todos", "Disponible", "Poco Stock", "Agotado"])
         
-    if busqueda:
+    if busqueda and not df.empty:
         df = df[df['nombre'].str.contains(busqueda, case=False, na=False)]
-    if est_filtro != "Todos":
+    if est_filtro != "Todos" and not df.empty:
         df = df[df['estado'] == est_filtro]
         
     st.divider()
@@ -452,21 +292,22 @@ elif opcion_menu == "Inventario Principal":
                 c1, c2, c3, c4, c5 = st.columns([4, 2, 2, 2, 2])
                 c1.markdown(f"**{row['nombre']}**")
                 
-                badge = f"<span class='badge-{row['estado'].lower().replace(' ', '')}'>{row['estado']}</span>"
+                badge = f"<span class='badge-{str(row['estado']).lower().replace(' ', '')}'>{row['estado']}</span>"
                 c2.markdown(badge, unsafe_allow_html=True)
                 
                 c3.write(f"Stock: **{row['cantidad']}** {row['unidad']}")
                 
-                if c4.button("+ 1", key=f"add_{row['id']}"):
-                    actualizar_stock(row['id'], row['cantidad'] + 1, row['nombre'])
+                if c4.button("+ 1", key=f"add_{idx}"):
+                    df.at[idx, 'cantidad'] = float(row['cantidad']) + 1
+                    guardar_df(df)
                     st.rerun()
-                if c5.button("- 1", key=f"sub_{row['id']}"):
-                    nueva_cant = max(0.0, row['cantidad'] - 1)
-                    actualizar_stock(row['id'], nueva_cant, row['nombre'])
+                if c5.button("- 1", key=f"sub_{idx}"):
+                    df.at[idx, 'cantidad'] = max(0.0, float(row['cantidad']) - 1)
+                    guardar_df(df)
                     st.rerun()
 
 # ------------------------------------------
-# MÓDULO 3: AÑADIR ALIMENTO
+# AÑADIR ALIMENTO
 # ------------------------------------------
 elif opcion_menu == "Añadir Alimento":
     st.header("Añadir Nuevo Alimento")
@@ -489,22 +330,31 @@ elif opcion_menu == "Añadir Alimento":
                 if not nombre:
                     st.error("El nombre del alimento es obligatorio.")
                 else:
-                    agregar_producto(nombre, cantidad, unidad, minimo)
-                    st.success(f"Producto '{nombre}' guardado exitosamente.")
+                    df = obtener_productos()
+                    nuevo_registro = pd.DataFrame([{
+                        'nombre': nombre,
+                        'cantidad': cantidad,
+                        'unidad': unidad,
+                        'minimo': minimo
+                    }])
+                    df = pd.concat([df, nuevo_registro], ignore_index=True)
+                    guardar_df(df)
+                    st.success(f"Producto '{nombre}' guardado exitosamente en la nube.")
 
 # ------------------------------------------
-# MÓDULO 4: EDITAR ALIMENTO
+# EDITAR ALIMENTO
 # ------------------------------------------
 elif opcion_menu == "Editar Alimento":
     st.header("Editar Alimento Existente")
-    df_prod = obtener_productos()
+    df = obtener_productos()
     
-    if df_prod.empty:
+    if df.empty:
         st.info("No hay productos registrados para editar.")
     else:
         with st.container(border=True):
-            producto_sel_nombre = st.selectbox("Seleccione el producto a editar:", df_prod['nombre'].values)
-            prod_data = df_prod[df_prod['nombre'] == producto_sel_nombre].iloc[0]
+            producto_sel_nombre = st.selectbox("Seleccione el producto a editar:", df['nombre'].values)
+            idx = df[df['nombre'] == producto_sel_nombre].index[0]
+            prod_data = df.loc[idx]
             
             with st.form("form_editar_producto"):
                 nuevo_nombre = st.text_input("Nombre del alimento:", value=prod_data['nombre']).strip()
@@ -525,24 +375,29 @@ elif opcion_menu == "Editar Alimento":
                     if not nuevo_nombre:
                         st.error("El nombre no puede estar vacío.")
                     else:
-                        editar_producto_db(prod_data['id'], nuevo_nombre, cantidad, unidad, minimo)
+                        df.at[idx, 'nombre'] = nuevo_nombre
+                        df.at[idx, 'cantidad'] = cantidad
+                        df.at[idx, 'unidad'] = unidad
+                        df.at[idx, 'minimo'] = minimo
+                        guardar_df(df)
                         st.success("Producto actualizado correctamente.")
                         st.rerun()
 
             st.divider()
             if st.button("Eliminar Producto"):
-                eliminar_producto(prod_data['id'], prod_data['nombre'])
+                df = df.drop(idx).reset_index(drop=True)
+                guardar_df(df)
                 st.success(f"Producto '{prod_data['nombre']}' eliminado.")
                 st.rerun()
 
 # ------------------------------------------
-# MÓDULO 5: LISTA DE COMPRAS Y PDF
+# LISTA DE COMPRAS Y PDF
 # ------------------------------------------
 elif opcion_menu == "Lista de Compras & PDF":
     st.header("Lista de Compras Automática")
     df = obtener_productos()
     
-    df_faltantes = df[df['estado'].isin(['Agotado', 'Poco Stock'])].copy()
+    df_faltantes = df[df['estado'].isin(['Agotado', 'Poco Stock'])].copy() if not df.empty else pd.DataFrame()
     
     with st.container(border=True):
         if df_faltantes.empty:
@@ -558,4 +413,4 @@ elif opcion_menu == "Lista de Compras & PDF":
                 data=pdf_buffer,
                 file_name=f"lista_compras_{datetime.date.today()}.pdf",
                 mime="application/pdf"
-            ) 
+            )
