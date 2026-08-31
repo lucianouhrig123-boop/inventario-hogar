@@ -1,10 +1,10 @@
+import os
 import datetime
 import io
 import random
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from streamlit_gsheets import GSheetsConnection
 
 # Módulos de ReportLab para la exportación PDF
 from reportlab.lib.pagesizes import letter
@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Fondo de frutas dispersas y con transparencia aleatoria
+# Fondo de frutas dispersas y con transparencia
 FRUITS = ['🍎', '🍌', '🍊', '🍐', '🍓', '🍏', '🍉', '🍇', '🍋', '🍒', '🍑', '🍍', '🥑', '🫐', '🥝']
 random.seed(42)
 fruits_html_list = []
@@ -69,7 +69,7 @@ CUSTOM_CSS = f"""
         background-color: #e8f5e9; color: #2e7d32; padding: 4px 10px;
         border-radius: 12px; font-weight: 600; font-size: 0.8rem; border: 1px solid #c8e6c9;
     }}
-    .badge-poco {{
+    .badge-pocostock {{
         background-color: #fff8e1; color: #f57f17; padding: 4px 10px;
         border-radius: 12px; font-weight: 600; font-size: 0.8rem; border: 1px solid #ffe082;
     }}
@@ -118,13 +118,18 @@ CUSTOM_CSS = f"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CAPA DE BASE DE DATOS (GOOGLE SHEETS)
+# 2. CAPA DE BASE DE DATOS (PERSISTENCIA CSV)
 # ==========================================
-conn = st.connection("gsheets", type=GSheetsConnection)
+DB_FILE = "inventario_data.csv"
 
 def obtener_productos():
+    if not os.path.exists(DB_FILE):
+        df_init = pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo'])
+        df_init.to_csv(DB_FILE, index=False)
+        return df_init
+
     try:
-        df = conn.read(ttl=0)
+        df = pd.read_csv(DB_FILE)
         if df.empty or 'nombre' not in df.columns:
             return pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo', 'estado'])
         
@@ -146,7 +151,7 @@ def obtener_productos():
 
 def guardar_df(df):
     df_to_save = df[['nombre', 'cantidad', 'unidad', 'minimo']].copy()
-    conn.update(data=df_to_save)
+    df_to_save.to_csv(DB_FILE, index=False)
 
 # ==========================================
 # 3. GENERADOR DE REPORTES PDF
@@ -292,8 +297,8 @@ elif opcion_menu == "Inventario Principal":
                 c1, c2, c3, c4, c5 = st.columns([4, 2, 2, 2, 2])
                 c1.markdown(f"**{row['nombre']}**")
                 
-                badge = f"<span class='badge-{str(row['estado']).lower().replace(' ', '')}'>{row['estado']}</span>"
-                c2.markdown(badge, unsafe_allow_html=True)
+                badge_class = f"badge-{str(row['estado']).lower().replace(' ', '')}"
+                c2.markdown(f"<span class='{badge_class}'>{row['estado']}</span>", unsafe_allow_html=True)
                 
                 c3.write(f"Stock: **{row['cantidad']}** {row['unidad']}")
                 
@@ -339,7 +344,7 @@ elif opcion_menu == "Añadir Alimento":
                     }])
                     df = pd.concat([df, nuevo_registro], ignore_index=True)
                     guardar_df(df)
-                    st.success(f"Producto '{nombre}' guardado exitosamente en la nube.")
+                    st.success(f"Producto '{nombre}' guardado exitosamente.")
 
 # ------------------------------------------
 # EDITAR ALIMENTO
