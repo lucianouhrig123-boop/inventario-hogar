@@ -5,6 +5,7 @@ import random
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+from supabase import create_client, Client
 
 # Módulos de ReportLab para la exportación PDF
 from reportlab.lib.pagesizes import letter
@@ -13,7 +14,18 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 # ==========================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
+# 1. CONEXIÓN A SUPABASE
+# ==========================================
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# ==========================================
+# 2. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ==========================================
 st.set_page_config(
     page_title="Gestión de Inventario Hogar",
@@ -21,7 +33,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Fondo de frutas dispersas y con transparencia
 FRUITS = ['🍎', '🍌', '🍊', '🍐', '🍓', '🍏', '🍉', '🍇', '🍋', '🍒', '🍑', '🍍', '🥑', '🫐', '🥝']
 random.seed(42)
 fruits_html_list = []
@@ -118,43 +129,53 @@ CUSTOM_CSS = f"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CAPA DE BASE DE DATOS (PERSISTENCIA CSV)
+# 3. CAPA DE DATOS CON SUPABASE
 # ==========================================
-DB_FILE = "inventario_data.csv"
-
 def obtener_productos():
-    if not os.path.exists(DB_FILE):
-        df_init = pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo'])
-        df_init.to_csv(DB_FILE, index=False)
-        return df_init
+    res = supabase.table("productos").select("*").order("id").execute()
+    data = res.data if res and res.data else []
+    
+    cols = ['id', 'nombre', 'cantidad', 'unidad', 'minimo', 'estado']
+    
+    if not data:
+        return pd.DataFrame(columns=cols)
+    
+    df = pd.DataFrame(data)
+    
+    for col in ['id', 'nombre', 'cantidad', 'unidad', 'minimo']:
+        if col not in df.columns:
+            df[col] = None
+            
+    df['cantidad'] = pd.to_numeric(df['cantidad'], errors='coerce').fillna(0)
+    df['minimo'] = pd.to_numeric(df['minimo'], errors='coerce').fillna(1)
+    
+    def calc_estado(row):
+        if row['cantidad'] == 0:
+            return 'Agotado'
+        elif row['cantidad'] <= row['minimo']:
+            return 'Poco Stock'
+        else:
+            return 'Disponible'
+            
+    df['estado'] = df.apply(calc_estado, axis=1)
+    return df
 
-    try:
-        df = pd.read_csv(DB_FILE)
-        if df.empty or 'nombre' not in df.columns:
-            return pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo', 'estado'])
-        
-        df['cantidad'] = pd.to_numeric(df['cantidad'], errors='coerce').fillna(0)
-        df['minimo'] = pd.to_numeric(df['minimo'], errors='coerce').fillna(1)
-        
-        def calc_estado(row):
-            if row['cantidad'] == 0:
-                return 'Agotado'
-            elif row['cantidad'] <= row['minimo']:
-                return 'Poco Stock'
-            else:
-                return 'Disponible'
-                
-        df['estado'] = df.apply(calc_estado, axis=1)
-        return df
-    except Exception:
-        return pd.DataFrame(columns=['nombre', 'cantidad', 'unidad', 'minimo', 'estado'])
+def agregar_producto(nombre, cantidad, unidad, minimo):
+    data = {"nombre": nombre, "cantidad": cantidad, "unidad": unidad, "minimo": minimo}
+    supabase.table("productos").insert(data).execute()
 
-def guardar_df(df):
-    df_to_save = df[['nombre', 'cantidad', 'unidad', 'minimo']].copy()
-    df_to_save.to_csv(DB_FILE, index=False)
+def actualizar_producto(id_prod, nombre, cantidad, unidad, minimo):
+    data = {"nombre": nombre, "cantidad": cantidad, "unidad": unidad, "minimo": minimo}
+    supabase.table("productos").update(data).eq("id", id_prod).execute()
+
+def actualizar_cantidad(id_prod, nueva_cant):
+    supabase.table("productos").update({"cantidad": nueva_cant}).eq("id", id_prod).execute()
+
+def eliminar_producto(id_prod):
+    supabase.table("productos").delete().eq("id", id_prod).execute()
 
 # ==========================================
-# 3. GENERADOR DE REPORTES PDF
+# 4. GENERADOR DE REPORTES PDF
 # ==========================================
 def generar_pdf_lista_compras(df_faltantes):
     buffer = io.BytesIO()
@@ -208,7 +229,7 @@ def animacion_frutas_5s():
     st.markdown(html_code, unsafe_allow_html=True)
 
 # ==========================================
-# 4. NAVEGACIÓN Y MENÚ
+# 5. NAVEGACIÓN Y MENÚ
 # ==========================================
 st.sidebar.markdown("### Inventario Hogar")
 opcion_menu = st.sidebar.radio(
@@ -302,13 +323,11 @@ elif opcion_menu == "Inventario Principal":
                 
                 c3.write(f"Stock: **{row['cantidad']}** {row['unidad']}")
                 
-                if c4.button("+ 1", key=f"add_{idx}"):
-                    df.at[idx, 'cantidad'] = float(row['cantidad']) + 1
-                    guardar_df(df)
+                if c4.button("+ 1", key=f"add_{row['id']}"):
+                    actualizar_cantidad(row['id'], float(row['cantidad']) + 1)
                     st.rerun()
-                if c5.button("- 1", key=f"sub_{idx}"):
-                    df.at[idx, 'cantidad'] = max(0.0, float(row['cantidad']) - 1)
-                    guardar_df(df)
+                if c5.button("- 1", key=f"sub_{row['id']}"):
+                    actualizar_cantidad(row['id'], max(0.0, float(row['cantidad']) - 1))
                     st.rerun()
 
 # ------------------------------------------
@@ -335,16 +354,8 @@ elif opcion_menu == "Añadir Alimento":
                 if not nombre:
                     st.error("El nombre del alimento es obligatorio.")
                 else:
-                    df = obtener_productos()
-                    nuevo_registro = pd.DataFrame([{
-                        'nombre': nombre,
-                        'cantidad': cantidad,
-                        'unidad': unidad,
-                        'minimo': minimo
-                    }])
-                    df = pd.concat([df, nuevo_registro], ignore_index=True)
-                    guardar_df(df)
-                    st.success(f"Producto '{nombre}' guardado exitosamente.")
+                    agregar_producto(nombre, cantidad, unidad, minimo)
+                    st.success(f"Producto '{nombre}' guardado exitosamente en la nube.")
 
 # ------------------------------------------
 # EDITAR ALIMENTO
@@ -358,8 +369,8 @@ elif opcion_menu == "Editar Alimento":
     else:
         with st.container(border=True):
             producto_sel_nombre = st.selectbox("Seleccione el producto a editar:", df['nombre'].values)
-            idx = df[df['nombre'] == producto_sel_nombre].index[0]
-            prod_data = df.loc[idx]
+            prod_data = df[df['nombre'] == producto_sel_nombre].iloc[0]
+            prod_id = prod_data['id']
             
             with st.form("form_editar_producto"):
                 nuevo_nombre = st.text_input("Nombre del alimento:", value=prod_data['nombre']).strip()
@@ -380,18 +391,13 @@ elif opcion_menu == "Editar Alimento":
                     if not nuevo_nombre:
                         st.error("El nombre no puede estar vacío.")
                     else:
-                        df.at[idx, 'nombre'] = nuevo_nombre
-                        df.at[idx, 'cantidad'] = cantidad
-                        df.at[idx, 'unidad'] = unidad
-                        df.at[idx, 'minimo'] = minimo
-                        guardar_df(df)
+                        actualizar_producto(prod_id, nuevo_nombre, cantidad, unidad, minimo)
                         st.success("Producto actualizado correctamente.")
                         st.rerun()
 
             st.divider()
             if st.button("Eliminar Producto"):
-                df = df.drop(idx).reset_index(drop=True)
-                guardar_df(df)
+                eliminar_producto(prod_id)
                 st.success(f"Producto '{prod_data['nombre']}' eliminado.")
                 st.rerun()
 
